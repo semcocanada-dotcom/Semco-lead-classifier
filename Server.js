@@ -37,7 +37,7 @@ async function classifyLead(lead) {
   const res = await postJson('https://api.anthropic.com/v1/messages', {
     model: 'claude-haiku-4-5-20251001',
     max_tokens: 512,
-    messages: [{ role: 'user', content: `You are a lead classifier for Semco Canada microcement. Return ONLY valid JSON.
+    messages: [{ role: 'user', content: `You are a lead classifier for Semco Canada microcement. Return ONLY valid JSON, no prose.
 
 Name: ${lead.name}
 Email: ${lead.email}
@@ -84,15 +84,4 @@ const server = http.createServer(async (req, res) => {
           submitted_at: new Date().toISOString(),
           source: 'semco_contact_form'
         });
-        console.log(`Done: ${leadId} → ${classification.route_to}`);
-      } catch (e) {
-        console.error('Error:', e.message);
-      }
-    });
-    return;
-  }
-  res.writeHead(404);
-  res.end();
-});
-
-server.listen(PORT, () => console.log(`Semco classifier on port ${PORT}`));
+        console.log(`Done: ${leadId} → ${classification.route​​​​​​​​​​​​​​​​
