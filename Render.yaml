@@ -1,0 +1,8 @@
+services:
+  - type: web
+    name: semco-lead-classifier
+    env: node
+    startCommand: node server.js
+    envVars:
+      - key: ANTHROPIC_API_KEY
+        sync: false
