@@ -2,57 +2,26 @@ const http = require("http");
 
 const PORT = process.env.PORT || 10000;
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
-const MANUS_WEBHOOK_URL = process.env.MANUS_WEBHOOK_URL;
+const MANUS_WEBHOOK_URL = "https://manuswebhook-vssdftpv.manus.space";
+const MAKE_EMAIL_WEBHOOK = "https://hook.us2.make.com/ixsvekr2ehtpaibmrwrlou9lcsu1epc6";
 
 const server = http.createServer(async (req, res) => {
   if (req.method === "GET") {
     res.writeHead(200, { "Content-Type": "application/json" });
-    return res.end(JSON.stringify({ status: "ok", service: "semco-lead-classifier" }));
+    return res.end(JSON.stringify({ status: "ok" }));
   }
-
   if (req.method !== "POST") {
     res.writeHead(405);
     return res.end("Method not allowed");
   }
-
   let body = "";
-  req.on("data", chunk => body += chunk);
-
+  req.on("data", chunk => { body += chunk; });
   req.on("end", async () => {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ received: true }));
     try {
-      const lead = JSON.parse(body || "{}");
-
-      const prompt = `
-You are a lead classifier for Semco Canada microcement.
-
-Return ONLY valid JSON. No markdown. No prose.
-
-Lead:
-${JSON.stringify(lead, null, 2)}
-
-Classify:
-- property owner = homeowner_hiring
-- architect/designer/builder = architect
-- contractor/installer = commercial_installer
-- unclear = unclassified
-
-Intent:
-- buy = wants to purchase or find supplier
-- technical = questions about application/substrate/system
-- info = general curiosity
-- install_network = wants to become installer/dealer
-
-Return this exact JSON shape:
-{
-  "lead_category": "",
-  "intent": "",
-  "confidence": "",
-  "summary": "",
-  "questions_asked": "",
-  "route_to": "SEMCO_DIRECT"
-}
-`;
-
+      const lead = JSON.parse(body);
+      console.log("Lead received:", lead.name, lead.email);
       const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
         headers: {
@@ -62,51 +31,25 @@ Return this exact JSON shape:
         },
         body: JSON.stringify({
           model: "claude-haiku-4-5-20251001",
-          max_tokens: 800,
-          temperature: 0,
-          messages: [{ role: "user", content: prompt }]
+          max_tokens: 256,
+          messages: [{
+            role: "user",
+            content: `Classify this Semco Canada lead. Return JSON only, no prose.\nName: ${lead.name}\nEmail: ${lead.email}\nCity: ${lead.city}\nMessage: ${lead.message}\nHow can we help: ${lead.how_can_we_help_you || ""}\n\nReturn: {"lead_category":"homeowner_hiring|architect|commercial_installer|unclassified","intent":"buy|technical|info|install_network","province_guess":"2-letter province","route_to":"DIST-001 if ON+buy else SEMCO_DIRECT","confidence":"high|medium|low","summary":"one sentence"}`
+          }]
         })
       });
-
       const claudeData = await claudeRes.json();
-
-      if (!claudeRes.ok) {
-        throw new Error(JSON.stringify(claudeData));
-      }
-
-      const classificationText = claudeData?.content?.[0]?.text || "{}";
-      let classification;
-
-      try {
-        classification = JSON.parse(classificationText);
-      } catch {
-        classification = { raw: classificationText };
-      }
-
-      const output = {
-        ...lead,
-        classification,
-        received_at: new Date().toISOString(),
-        source: "semco_contact_form"
-      };
-
-      if (MANUS_WEBHOOK_URL) {
-        await fetch(MANUS_WEBHOOK_URL, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(output)
-        });
-      }
-
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify(output));
-    } catch (err) {
-      res.writeHead(500, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ error: err.message }));
+      const classification = JSON.parse(claudeData.content[0].text);
+      console.log("Classified:", classification.route_to);
+      const payload = { name: lead.name, email: lead.email, city: lead.city, message: lead.message, how_can_we_help: lead.how_can_we_help_you || "", classification, submitted_at: new Date().toISOString(), source: "semco_contact_form" };
+      await fetch(MANUS_WEBHOOK_URL, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) });
+      console.log("Manus notified");
+      await fetch(MAKE_EMAIL_WEBHOOK, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) });
+      console.log("Emails triggered");
+    } catch (e) {
+      console.error("Error:", e.message);
     }
   });
 });
 
-server.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+server.listen(PORT, () => console.log("Semco classifier listening on port", PORT));
